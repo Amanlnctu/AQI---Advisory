@@ -1,17 +1,20 @@
-from fastapi import APIRouter, HTTPException, Query, Path, Body
+from fastapi import APIRouter, HTTPException, Query, Path, Body, Depends
+from typing import List
 from app.core.database import get_db
+
 from app.models.domain import (
     DashboardResponse, LocationInfo, CurrentConditions, TomorrowPrediction,
-    PersonalizedAdvisory, UserProfileDB, UserProfileUpdate, SymptomLogEntry,
-    SymptomLogResponse, SymptomLogDB, RouteRequest, SafeRouteResponse, RouteOption
+    PersonalizedAdvisory, UserProfile, SymptomLog, RouteRequest, 
+    RouteResponse, RouteOption, TrendDataPoint
 )
-from app.services.data_fetcher import DataFetcherService
-from app.services.predictor import PredictorService
+from app.services.data_fetcher import ExternalDataFetcher
+from app.services.predictor import AQIPredictor
 from datetime import datetime, timedelta
 import random
 
 router = APIRouter()
 
+# ### Screen 1: Dashboard
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(
     user_id: str = Query(...),
@@ -19,126 +22,89 @@ async def get_dashboard(
     lon: float = Query(...)
 ):
     db = get_db()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database connection not initialized")
-
+    
     # 1. Fetch User Profile
     user_doc = await db.users.find_one({"user_id": user_id})
     if not user_doc:
-        profile = UserProfileDB(user_id=user_id) # Default empty profile
+        # Default empty profile fallback
+        profile = UserProfile(user_id=user_id)
     else:
-        profile = UserProfileDB(**user_doc)
+        profile = UserProfile(**user_doc)
         
     # 2. Ingest real-time data
-    try:
-        current_aqi = await DataFetcherService.fetch_realtime_aqi(lat, lon)
-        weather_data = await DataFetcherService.fetch_current_weather(lat, lon)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to fetch external weather/AQI data")
-        
-    current_cat = PredictorService.categorize_aqi(current_aqi)
+    weather_data = await ExternalDataFetcher.get_current_weather(lat, lon)
+    aqi_data = await ExternalDataFetcher.get_current_aqi(lat, lon)
+    current_aqi = aqi_data.get("aqi", 0)
 
-    # 3. Use Predicting ML layer
-    forecast_24h = PredictorService.get_24h_forecast(lat, lon, current_aqi, weather_data)
-    
-    tomorrow_prediction_point = forecast_24h[12] if len(forecast_24h) > 12 else forecast_24h[-1]
-    tomorrow_aqi = tomorrow_prediction_point.aqi
-    tomorrow_cat = PredictorService.categorize_aqi(tomorrow_aqi)
-    
-    # 4. Generate Advisory
-    triggered_by = []
-    is_alert = False
-    if current_aqi > 100:
-        if profile.asthma_respiratory:
-            triggered_by.append("asthma_respiratory")
-            is_alert = True
-        if profile.elderly:
-            triggered_by.append("elderly")
-            is_alert = True
-        if profile.children_in_household and current_aqi > 150:
-            triggered_by.append("children_in_household")
-            is_alert = True
+    # 3. Prediction layer
+    forecast_24h = AQIPredictor.generate_24h_forecast(current_aqi, weather_data)
+    current_cat = AQIPredictor.categorize_aqi(current_aqi)
 
-    if is_alert:
-        headline = "Health Warning"
-        message = "AQI levels are unsafe given your specific health profile. Minimize outdoor activities."
-    else:
-        headline = "All Clear"
-        message = "AQI is acceptable. Enjoy your day outdoors."
+    # Calculate tomorrow prediction based on middle of the list (12 hours away)
+    tomorrow_aqi = forecast_24h[12].aqi
+    tomorrow_cat = AQIPredictor.categorize_aqi(tomorrow_aqi)
+    
+    # Generate advisory mapping
+    advisory_dict = AQIPredictor.get_personalized_advisory(tomorrow_aqi, profile)
 
     return DashboardResponse(
-        location=LocationInfo(name="Predicted Location", lat=lat, lon=lon),
+        location=LocationInfo(name="Your Location", lat=lat, lon=lon),
         current_conditions=CurrentConditions(aqi=current_aqi, category=current_cat),
         tomorrow_prediction=TomorrowPrediction(
-            aqi=tomorrow_aqi, 
-            category=tomorrow_cat, 
-            target_time=(datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d 12:00")
+            aqi=tomorrow_aqi,
+            category=tomorrow_cat,
+            target_time=(datetime.now() + timedelta(hours=12)).strftime("%Y-%m-%d %H:00")
         ),
-        personalized_advisory=PersonalizedAdvisory(
-            is_alert=is_alert,
-            headline=headline,
-            message=message,
-            triggered_by=triggered_by
-        ),
+        personalized_advisory=PersonalizedAdvisory(**advisory_dict),
         trend_24h=forecast_24h
     )
 
-@router.post("/routes/safe-route", response_model=SafeRouteResponse)
-async def get_safe_route(req: RouteRequest):
-    # Determine mock AQI dynamically from origins for the specific routes
-    try:
-        base_aqi = await DataFetcherService.fetch_realtime_aqi(req.origin_lat, req.origin_lon)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to calculate safe routes due to system error")
-        
-    fastest_aqi = base_aqi + random.randint(10, 50)  # slightly higher for "fast" busy roads
-    cleanest_aqi = max(50, fastest_aqi - 80)
+# ### Screen 2: Safe Route Calculation
+@router.post("/routes/safe-route", response_model=RouteResponse)
+async def compare_safe_routes(req: RouteRequest = Body(...)):
+    # Mock generation mimicking origin base AQI
+    aqi_data = await ExternalDataFetcher.get_current_aqi(req.origin_lat, req.origin_lon)
+    base_aqi = aqi_data.get("aqi", 100)
+    
+    fast_aqi = base_aqi + random.randint(20, 60)
+    clean_aqi = max(50, fast_aqi - 80)
     
     route1 = RouteOption(
-        route_type="fastest",
-        duration_mins=20,
-        avg_aqi=fastest_aqi,
-        aqi_category=PredictorService.categorize_aqi(fastest_aqi),
-        polyline="mock_polyline_fastest",
-        is_recommended=False
+        route_type="Fastest",
+        duration_mins=25,
+        avg_aqi=fast_aqi,
+        aqi_category=AQIPredictor.categorize_aqi(fast_aqi),
+        polyline="fastest_polyline_mock"
     )
     
     route2 = RouteOption(
-        route_type="cleanest",
-        duration_mins=28,
-        avg_aqi=cleanest_aqi,
-        aqi_category=PredictorService.categorize_aqi(cleanest_aqi),
-        polyline="mock_polyline_cleanest",
-        is_recommended=True
+        route_type="Cleanest",
+        duration_mins=32,
+        avg_aqi=clean_aqi,
+        aqi_category=AQIPredictor.categorize_aqi(clean_aqi),
+        polyline="cleanest_polyline_mock"
     )
     
-    advisory = f"Taking the cleanest route adds just 8 minutes but reduces your AQI exposure by {fastest_aqi - cleanest_aqi} points."
-    
-    return SafeRouteResponse(
-        routes=[route1, route2],
-        route_advisory=advisory
-    )
+    return RouteResponse(routes=[route1, route2])
 
-@router.get("/users/{user_id}/profile", response_model=UserProfileUpdate)
+# ### Screen 3: User Profile Management Operations
+@router.get("/users/{user_id}/profile", response_model=UserProfile)
 async def get_user_profile(user_id: str = Path(...)):
     db = get_db()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database connection not initialized")
-        
     user_doc = await db.users.find_one({"user_id": user_id})
     if not user_doc:
-        # Default placeholder returning if not existing yet
-        return UserProfileUpdate(asthma_respiratory=False, elderly=False, children_in_household=False)
+        # Create default returning
+        default_profile = UserProfile(user_id=user_id)
+        return default_profile
         
-    return UserProfileUpdate(**user_doc)
+    return UserProfile(**user_doc)
 
-@router.put("/users/{user_id}/profile", response_model=UserProfileUpdate)
-async def update_user_profile(user_id: str = Path(...), profile: UserProfileUpdate = Body(...)):
-    db = get_db()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database connection not initialized")
+@router.put("/users/{user_id}/profile", response_model=UserProfile)
+async def update_user_profile(user_id: str = Path(...), profile: UserProfile = Body(...)):
+    if profile.user_id != user_id:
+        raise HTTPException(status_code=400, detail="Mismatched user_id.")
         
-    # Upsert user record into MongoDB
+    db = get_db()
     await db.users.update_one(
         {"user_id": user_id},
         {"$set": profile.model_dump()},
@@ -146,16 +112,16 @@ async def update_user_profile(user_id: str = Path(...), profile: UserProfileUpda
     )
     return profile
 
-@router.post("/users/{user_id}/symptoms", response_model=SymptomLogResponse)
-async def log_symptoms(user_id: str = Path(...), log: SymptomLogEntry = Body(...)):
-    if log.symptom_level not in ['great', 'cough_wheezing', 'headache_fatigue']:
-        raise HTTPException(status_code=400, detail="Invalid symptom_level.")
+# ### Screen 3: User Symptom Logging
+@router.post("/users/{user_id}/symptoms")
+async def log_user_symptoms(user_id: str = Path(...), log: SymptomLog = Body(...)):
+    if log.user_id != user_id:
+        raise HTTPException(status_code=400, detail="Mismatched user_id.")
+        
+    if log.symptom_level not in ['Great', 'Coughing', 'Headache']:
+        raise HTTPException(status_code=400, detail="Invalid symptom enum.")
         
     db = get_db()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database connection not initialized")
-        
-    db_entry = SymptomLogDB(user_id=user_id, **log.model_dump())
-    await db.symptoms.insert_one(db_entry.model_dump())
+    await db.symptoms.insert_one(log.model_dump())
     
-    return SymptomLogResponse(status="success", message="Symptom logged successfully.")
+    return {"status": "success", "message": "Successfully deposited symptom row."}

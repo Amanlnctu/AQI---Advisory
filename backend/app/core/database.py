@@ -4,27 +4,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class Database:
+class DatabaseManager:
     client: AsyncIOMotorClient = None
     db = None
 
     @classmethod
-    async def connect_db(cls):
+    async def connect_to_mongo(cls):
         try:
-            cls.client = AsyncIOMotorClient(settings.mongo_uri)
+            logger.info("Connecting to MongoDB...")
+            cls.client = AsyncIOMotorClient(settings.mongodb_url)
             cls.db = cls.client[settings.mongo_db_name]
-            logger.info("Connected to MongoDB successfully.")
+            logger.info("Successfully connected to MongoDB.")
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
 
     @classmethod
-    async def close_db(cls):
+    async def close_mongo_connection(cls):
         if cls.client:
+            logger.info("Closing MongoDB connection...")
             cls.client.close()
             logger.info("MongoDB connection closed.")
 
-db_instance = Database()
+db_manager = DatabaseManager()
 
 def get_db():
-    return db_instance.db
+    """Dependency injection helper to return the active database instance."""
+    return db_manager.db

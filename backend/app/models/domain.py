@@ -2,20 +2,21 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
-# Database Models
-class UserProfileDB(BaseModel):
+# Screen 3: User Profile Models
+class UserProfile(BaseModel):
     user_id: str
     asthma_respiratory: bool = False
     elderly: bool = False
-    children_in_household: bool = False
+    children: bool = False
 
-class SymptomLogDB(BaseModel):
+# Screen 3: Symptom Models 
+class SymptomLog(BaseModel):
     user_id: str
     timestamp: datetime
-    symptom_level: str
+    symptom_level: str = Field(..., description="Enum: 'Great', 'Coughing', 'Headache'")
     notes: Optional[str] = ""
 
-# API Models - Dashboard
+# Screen 1: Dashboard Models
 class LocationInfo(BaseModel):
     name: str = "Unknown Location"
     lat: float
@@ -34,7 +35,6 @@ class PersonalizedAdvisory(BaseModel):
     is_alert: bool
     headline: str
     message: str
-    triggered_by: List[str]
 
 class TrendDataPoint(BaseModel):
     time: str
@@ -47,9 +47,8 @@ class DashboardResponse(BaseModel):
     personalized_advisory: PersonalizedAdvisory
     trend_24h: List[TrendDataPoint]
 
-# API Models - Safe Route
+# Screen 2: Safe Route Models
 class RouteRequest(BaseModel):
-    user_id: str
     origin_lat: float
     origin_lon: float
     dest_lat: float
@@ -61,23 +60,6 @@ class RouteOption(BaseModel):
     avg_aqi: int
     aqi_category: str
     polyline: str
-    is_recommended: bool
 
-class SafeRouteResponse(BaseModel):
+class RouteResponse(BaseModel):
     routes: List[RouteOption]
-    route_advisory: str
-
-# API Models - Profile & Symptoms
-class UserProfileUpdate(BaseModel):
-    asthma_respiratory: bool
-    elderly: bool
-    children_in_household: bool
-
-class SymptomLogEntry(BaseModel):
-    timestamp: datetime
-    symptom_level: str = Field(..., description="Must be 'great', 'cough_wheezing', or 'headache_fatigue'")
-    notes: Optional[str] = ""
-
-class SymptomLogResponse(BaseModel):
-    status: str
-    message: str

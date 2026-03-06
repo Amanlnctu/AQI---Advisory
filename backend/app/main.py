@@ -2,32 +2,25 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import settings
-from app.core.database import Database
+from app.core.database import DatabaseManager
 from app.api import endpoints
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup Events
-    await Database.connect_db()
-    
-    # Could initialize background tasks like APScheduler here
-    # scheduler = AsyncIOScheduler()
-    # scheduler.add_job(fetch_hourly_data, 'interval', hours=1)
-    # scheduler.start()
-
+    # Execute connect functions at app boot
+    await DatabaseManager.connect_to_mongo()
     yield
-    
-    # Shutdown Events
-    await Database.close_db()
+    # Drop cleanly
+    await DatabaseManager.close_mongo_connection()
 
 app = FastAPI(
     title=settings.app_name,
-    description="API for forecasting Air Quality Index (AQI) and providing personalized health advisories.",
+    description="Backend API powering the 3 Predictive AQI Application Screens.",
     version="2.0.0",
     lifespan=lifespan
 )
 
-# CORS middleware MUST be enabled for all origins based on requirements
+# Apply permissive CORS setup for frontend testing accessibility.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
