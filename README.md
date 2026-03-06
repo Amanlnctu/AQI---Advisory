@@ -6,7 +6,7 @@
 
 ## 🚀 Live Demo
 
-Deployed on Vercel → [aqi-advisory.vercel.app](https://aqi-advisory.vercel.app) *(replace with your URL)*
+Deployed on Vercel → [https://aqi-advisory-8i9o.vercel.app/](https://aqi-advisory-8i9o.vercel.app/) Still under progress we are working on it some features might not work 
 
 ---
 
