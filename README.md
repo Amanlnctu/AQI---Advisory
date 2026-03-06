@@ -6,7 +6,7 @@
 
 ## 🚀 Live Demo
 
-Deployed on Vercel → [https://aqi-advisory-8i9o.vercel.app/](https://aqi-advisory-8i9o.vercel.app/) Still under progress we are working on it some features might not work 
+Deployed on Vercel → [https://aqi-advisory-8i9o.vercel.app/](https://aqi-advisory-8i9o.vercel.app/) Still under progress we are working on it some features might not work (but u can pull this repo as it is working fine locally the instructions are given below )
 
 ---
 
