@@ -20,10 +20,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Apply permissive CORS setup for frontend testing accessibility.
+# Apply permissive CORS for local dev and Vercel production.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Vercel handles per-origin restriction via Edge config
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
