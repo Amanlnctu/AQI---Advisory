@@ -26,29 +26,29 @@ async def get_dashboard(
     # 1. Fetch User Profile
     user_doc = await db.users.find_one({"user_id": user_id})
     if not user_doc:
-        # Default empty profile fallback
         profile = UserProfile(user_id=user_id)
     else:
         profile = UserProfile(**user_doc)
         
-    # 2. Ingest real-time data
+    # 2. Ingest real-time data (now coordinate-sensitive)
     weather_data = await ExternalDataFetcher.get_current_weather(lat, lon)
     aqi_data = await ExternalDataFetcher.get_current_aqi(lat, lon)
     current_aqi = aqi_data.get("aqi", 0)
 
-    # 3. Prediction layer
+    # 3. Get human-readable location name via Nominatim
+    location_name = await ExternalDataFetcher.get_location_name(lat, lon)
+
+    # 4. Prediction layer
     forecast_24h = AQIPredictor.generate_24h_forecast(current_aqi, weather_data)
     current_cat = AQIPredictor.categorize_aqi(current_aqi)
 
-    # Calculate tomorrow prediction based on middle of the list (12 hours away)
     tomorrow_aqi = forecast_24h[12].aqi
     tomorrow_cat = AQIPredictor.categorize_aqi(tomorrow_aqi)
     
-    # Generate advisory mapping
     advisory_dict = AQIPredictor.get_personalized_advisory(tomorrow_aqi, profile)
 
     return DashboardResponse(
-        location=LocationInfo(name="Your Location", lat=lat, lon=lon),
+        location=LocationInfo(name=location_name, lat=lat, lon=lon),
         current_conditions=CurrentConditions(aqi=current_aqi, category=current_cat),
         tomorrow_prediction=TomorrowPrediction(
             aqi=tomorrow_aqi,

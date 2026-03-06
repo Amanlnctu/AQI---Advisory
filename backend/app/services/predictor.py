@@ -26,22 +26,39 @@ class AQIPredictor:
     @staticmethod
     def generate_24h_forecast(current_aqi: int, weather_data: dict) -> list[TrendDataPoint]:
         """
-        Mocks predictive ML layer using wind_speed as a heuristic factor.
-        Calculates 24-hours of future AQI variances.
+        Since there is no external API providing true historical/forecast data 
+        in this PoC, we simulate a realistic diurnal curve (sine wave) for PM2.5 
+        where pollution peaks in the late night/early morning and dips in the afternoon, 
+        plus some random noise.
         """
-        wind_speed = weather_data.get("wind_speed_kmh", 10.0)
-        
-        # Simple Logic: A higher wind speed drops the AQI more rapidly overnight
-        modifier = -3 if wind_speed > 10.0 else 2 
+        import math
+        import random
         
         forecast = []
         base_time = datetime.now()
-        tracked_aqi = current_aqi
+        
+        # Start the curve near the current_aqi
+        base_level = current_aqi
+        amplitude = max(20, current_aqi * 0.2) # Fluctuate by ~20% of current AQI
         
         for i in range(24):
-            tracked_aqi = max(10, tracked_aqi + modifier)
-            t_str = (base_time + timedelta(hours=i)).strftime("%Y-%m-%d %H:00")
-            forecast.append(TrendDataPoint(time=t_str, aqi=round(tracked_aqi)))
+            forecast_time = base_time + timedelta(hours=i)
+            hour = forecast_time.hour
+            
+            # Diurnal curve: peaks around 6 AM, lowest around 2-4 PM
+            # Cosine wave offset by 6 hours. cos((hour - 6) * pi / 12)
+            # 6 AM = cos(0) = 1 (peak)
+            # 6 PM = cos(pi) = -1 (trough)
+            time_factor = math.cos((hour - 6) * math.pi / 12)
+            
+            # Add random noise
+            noise = random.uniform(-10, 10)
+            
+            predicted_val = base_level + (amplitude * time_factor) + noise
+            predicted_val = max(10, min(500, int(predicted_val))) # clamp between 10 and 500
+            
+            t_str = forecast_time.strftime("%Y-%m-%d %H:00")
+            forecast.append(TrendDataPoint(time=t_str, aqi=predicted_val))
 
         return forecast
 
